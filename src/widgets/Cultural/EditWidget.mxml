@@ -1,0 +1,1060 @@
+<?xml version="1.0" encoding="utf-8"?>
+<viewer:BaseWidget xmlns:fx="http://ns.adobe.com/mxml/2009"
+				   xmlns:mx="library://ns.adobe.com/flex/mx"
+				   xmlns:s="library://ns.adobe.com/flex/spark"
+				   xmlns:viewer="com.esri.viewer.*"
+				   creationComplete="creationCompleteHandler()"
+				   widgetConfigLoaded="init()">
+	
+	<fx:Script>
+		<![CDATA[
+			import com.esri.ags.Graphic;
+			import com.esri.ags.SpatialReference;
+			import com.esri.ags.events.DrawEvent;
+			import com.esri.ags.geometry.Geometry;
+			import com.esri.ags.geometry.MapPoint;
+			import com.esri.ags.geometry.Polygon;
+			import com.esri.ags.geometry.WebMercatorMapPoint;
+			import com.esri.ags.layers.GraphicsLayer;
+			import com.esri.ags.symbols.SimpleFillSymbol;
+			import com.esri.ags.symbols.SimpleLineSymbol;
+			import com.esri.ags.symbols.SimpleMarkerSymbol;
+			import com.esri.ags.symbols.Symbol;
+			import com.esri.ags.tools.DrawTool;
+			import com.esri.ags.utils.JSONUtil;
+			import com.esri.ags.utils.WebMercatorUtil;
+			import com.esri.viewer.AppEvent;
+			
+			import mx.collections.ArrayCollection;
+			import mx.controls.Alert;
+			import mx.controls.TextInput;
+			import mx.controls.dataGridClasses.DataGridColumn;
+			import mx.events.CloseEvent;
+			import mx.events.DataGridEvent;
+			import mx.rpc.events.FaultEvent;
+			import mx.rpc.events.ResultEvent;
+			import mx.rpc.http.HTTPService;
+			
+			private static const GEOJSONFEED_COLLECTION_REFRESH:String = "geoJSONFeedCollectionRefresh";
+			private static const GEOJSONFEED_GRAPHIC_CLICK:String = "geoJSONFeedGraphicClick";
+			
+			[Bindable]
+			private var filterCondition:ArrayCollection;
+			[Bindable]
+			private var recordData:ArrayCollection;
+			[Bindable]
+			private var insertArray:Array = [];
+			[Bindable]
+			private var searchFields:ArrayCollection = new ArrayCollection();
+			[Bindable]
+			private var columnName:Array = [];
+			
+			private var feedURL:String;
+			private var latField:String;
+			private var lngField:String;
+			private var primaryKey:String;
+			private var titleField:String;
+			private var geometryField:String;
+			private var columnType:Array = [];
+			private var deleteArray:Array = [];
+			private var updateArray:Array = [];
+			private var columnRecord:HTTPService = new HTTPService();
+			private var deleteRecord:HTTPService = new HTTPService();
+			private var insertRecord:HTTPService = new HTTPService();
+			private var selectRecord:HTTPService = new HTTPService();
+			private var updateRecord:HTTPService = new HTTPService();
+			private var graphicsLayer:GraphicsLayer = new GraphicsLayer();
+			
+			private function creationCompleteHandler():void
+			{
+				AppEvent.addListener(GEOJSONFEED_GRAPHIC_CLICK, httpSelectRecordService);
+			}
+			
+			private function init():void
+			{
+				if (configXML)
+				{
+					feedURL = String(configXML.scripts.@source);
+					geometryField = String(configXML.geometryfield);
+					latField = String(configXML.coords.@lat);
+					lngField = String(configXML.coords.@lng);
+					primaryKey = String(configXML.primarykey);
+					titleField = String(configXML.titlefield);
+					filterCondition = new ArrayCollection(["=", "Like"]);
+					
+					var fields:XMLList = configXML.search.field;
+					
+					for each (var field:XML in fields)
+					{
+						searchFields.addItem(String(field.@name));
+					}
+					
+					graphicsLayer.spatialReference = map.spatialReference;
+					map.addLayer(graphicsLayer);
+					
+					wTemplate.addTitlebarButton("assets/images/insert.png", "Insert", showStateInsertRecords);
+					wTemplate.addTitlebarButton("assets/images/update.png", "Update", showStateUpdateRecords);
+					wTemplate.addTitlebarButton("assets/images/w_delete.png", "Delete", showStateDeleteRecords);
+					
+					httpColumnRecordService();
+				}
+			}
+			
+			private function showStateEditRecords():void
+			{
+				this.currentState = "editRecords";
+				graphicsLayer.clear();
+			}
+			
+			private function showStateInsertRecords():void
+			{
+				this.currentState = "insertRecords";
+				wTemplate.selectedTitlebarButtonIndex = 0;
+				insertGrid.columns = columnName;
+				
+				createInsertRecord();
+				graphicsLayer.clear();
+			}
+			
+			private function showStateUpdateRecords():void
+			{
+				this.currentState = "updateRecords";
+				wTemplate.selectedTitlebarButtonIndex = 1;
+				updateGrid.columns = columnName;
+				
+				updateSearchValue.text = "";
+				graphicsLayer.clear();
+			}
+			
+			private function showStateDeleteRecords():void
+			{
+				this.currentState = "deleteRecords";
+				wTemplate.selectedTitlebarButtonIndex = 2;
+				deleteGrid.columns = columnName;
+				
+				deleteSearchValue.text = "";
+				graphicsLayer.clear();
+			}
+			
+			private function httpFault(event:FaultEvent):void
+			{
+				Alert.show(event.fault.faultString);
+			}
+			
+			private function httpSelectRecordService(event:AppEvent):void
+			{
+				if (this.currentState == "updateRecords" || this.currentState == "deleteRecords")
+				{
+					var request:Object = new Object();
+					request.titlefield = titleField;
+					request.titlevalue = event.data;
+					
+					selectRecord.method = "GET";
+					selectRecord.request = request;
+					selectRecord.resultFormat = "text";
+					selectRecord.url = feedURL + "/getRecords.php";
+					selectRecord.addEventListener("result", httpSelectRecordResult);
+					selectRecord.addEventListener("fault", httpFault);
+					selectRecord.send();
+				}
+			}
+			
+			private function httpSelectRecordResult(event:ResultEvent):void
+			{
+				if (event.result != "Invalid Query" && event.result.charAt(0) != "<" && event.result != "[]")
+				{
+					var data:Object = JSONUtil.decode(event.result as String);
+					recordData = new ArrayCollection(data as Array);
+				}
+				else
+				{
+					clearGraphics();
+					Alert.show("No records returned", "Error", Alert.CANCEL);
+				}
+			}
+			
+			private function httpColumnRecordService():void
+			{
+				columnRecord.method = "GET";
+				columnRecord.resultFormat = "text";
+				columnRecord.url = feedURL + "/getJSONColumnNames.php";
+				columnRecord.addEventListener("result", httpColumnRecordResult);
+				columnRecord.addEventListener("fault", httpFault);
+				columnRecord.send();
+			}
+			
+			private function httpColumnRecordResult(event:ResultEvent):void
+			{
+				if (event.result != "Invalid Query")
+				{
+					var data:Object = JSONUtil.decode(event.result as String);
+					var array:Array = data as Array;
+					
+					for (var i:int = 0; i < array.length - 1; i++)
+					{
+						columnName.push(new DataGridColumn(array[i].COLUMN_NAME));
+						columnType.push(array[i].DATA_TYPE);
+					}
+					
+					columnName.shift();
+					columnType.shift();
+				}
+				else
+				{
+					Alert.show("Invalid Query", "Error", Alert.CANCEL);
+				}
+			}
+			
+			private function createInsertRecord():void
+			{
+				var insertData:Object = new Object();
+				
+				for (var i:int = 0; i < columnType.length; i++)
+				{
+					if (columnType[i] == "nvarchar")
+					{
+						insertData[columnName[i].dataField] = "";
+					}
+					else
+					{
+						insertData[columnName[i].dataField] = null;
+					}
+				}
+				
+				insertArray.push(insertData);
+			}
+			
+			private function insertGridCell(event:DataGridEvent):void
+			{
+				var editor:TextInput = TextInput(event.currentTarget.itemEditorInstance);
+				
+				insertArray[event.rowIndex][event.dataField] = editor.text;
+			}
+			
+			private function updateGridCell(event:DataGridEvent):void
+			{
+				var editor:TextInput = TextInput(event.currentTarget.itemEditorInstance);
+				var newValue:String = editor.text;
+				var oldValue:String = event.currentTarget.editedItemRenderer.data[event.dataField];
+				
+				if (recordData[event.rowIndex][event.dataField] == oldValue)
+				{
+					recordData[event.rowIndex][event.dataField] = newValue;
+				}
+				
+				if (newValue != oldValue)
+				{
+					var update:Object = new Object();
+					update.id = event.itemRenderer.data[primaryKey];
+					update.datafield = event.dataField;
+					update.geometryvalue = false;
+					update.value = newValue;
+					
+					if (event.dataField == latField || event.dataField == lngField)
+					{
+						update.geometryvalue = true;
+					}
+					
+					updateArray.push(update);
+				}
+			}
+			
+			private function insertRecordHandler(event:MouseEvent):void
+			{
+				insertRecordCount.text = insertGrid.selectedItems.length + " records selected";
+				
+				if (insertGrid.selectedItems.length == 0)
+				{
+					Alert.show("No records selected", "Result", Alert.CANCEL);
+				}
+				else if (insertArray[0][latField] == null || insertArray[0][lngField] == null)
+				{
+					Alert.show("No geographic coordinates selected", "Result", Alert.CANCEL);
+				}
+				else
+				{
+					Alert.show("Are your sure?", "Update Confirmation", Alert.YES | Alert.NO, this, alertClickHandler);
+				}
+			}
+			
+			private function updateRecordHandler(event:MouseEvent):void
+			{
+				updateRecordCount.text = updateGrid.selectedItems.length + " records selected";
+				
+				if (updateGrid.selectedItems.length == 0)
+				{
+					Alert.show("No records selected", "Result", Alert.CANCEL);
+				}
+				else if (updateArray.length == 0)
+				{
+					Alert.show("No records updated", "Result", Alert.CANCEL);
+				}
+				else
+				{
+					Alert.show("Are your sure?", "Update Confirmation", Alert.YES | Alert.NO, this, alertClickHandler);
+				}
+			}
+			
+			private function deleteRecordHandler(event:MouseEvent):void
+			{
+				deleteRecordCount.text = deleteGrid.selectedItems.length + " records selected";
+				
+				if (deleteGrid.selectedItems.length == 0)
+				{
+					Alert.show("No records selected", "Result", Alert.CANCEL);
+				}
+				else
+				{
+					Alert.show("Are your sure?", "Delete Confirmation", Alert.YES | Alert.NO, this, alertClickHandler);
+				}
+			}
+				
+			private function alertClickHandler(event:CloseEvent):void
+			{
+				if (event.detail == Alert.YES)
+				{
+					switch (this.currentState)
+					{
+						case "insertRecords":
+						{
+							httpInsertRecordService(JSONUtil.encode(insertArray));
+							break;
+						}
+						case "updateRecords":
+						{
+							httpUpdateRecordService(JSONUtil.encode(updateArray));
+							break;
+						}
+						case "deleteRecords":
+						{
+							for (var i:int = 0; i < deleteGrid.selectedItems.length; i++)
+							{
+								deleteArray.push(deleteGrid.selectedItems[i][primaryKey]);
+							}
+							
+							httpDeleteRecordService(JSONUtil.encode(deleteArray));
+							break;
+						}
+					}
+				}
+			}		
+			
+			private function httpInsertRecordService(json:String):void
+			{
+				var request:Object = new Object();
+				request.json = json;
+				
+				insertRecord.method = "GET";
+				insertRecord.request = request;
+				insertRecord.resultFormat = "text";
+				insertRecord.url = feedURL + "/insertRecords.php";
+				insertRecord.addEventListener("result", httpInsertRecordResult);
+				insertRecord.addEventListener("fault", httpFault);
+				insertRecord.send();
+			}
+			
+			private function httpInsertRecordResult(event:ResultEvent):void
+			{
+				if (event.result != "Invalid Query")
+				{
+					if (event.result == insertGrid.selectedItems.length)
+					{
+						AppEvent.dispatch(GEOJSONFEED_COLLECTION_REFRESH);
+						
+						clearGraphics();
+						insertArray = [];
+						createInsertRecord();
+						insertRecordCount.text = "";
+						
+						Alert.show(String(event.result) + " record(s) successfully inserted", "Success");
+					}
+					else
+					{
+						Alert.show("Record(s) insert unsuccessful", "Error", Alert.CANCEL);
+					}
+				}
+				else
+				{
+					Alert.show("Record(s) insert unsuccessful", "Error", Alert.CANCEL);
+				}
+			}
+			
+			private function httpUpdateRecordService(json:String):void
+			{
+				var request:Object = new Object();
+				request.geometryfield = geometryField;
+				request.latfield = latField;
+				request.lngfield = lngField;
+				request.primarykey = primaryKey;
+				request.json = json;
+				
+				updateRecord.method = "GET";
+				updateRecord.request = request;
+				updateRecord.resultFormat = "text";
+				updateRecord.url = feedURL + "/updateRecords.php";
+				updateRecord.addEventListener("result", httpUpdateRecordResult);
+				updateRecord.addEventListener("fault", httpFault);
+				updateRecord.send();
+			}
+			
+			private function httpUpdateRecordResult(event:ResultEvent):void
+			{
+				if (event.result != "Invalid Query")
+				{
+					if (event.result == updateGrid.selectedItems.length)
+					{		
+						AppEvent.dispatch(GEOJSONFEED_COLLECTION_REFRESH);
+						
+						clearGraphics();
+						recordData = null;
+						updateArray = [];
+						updateSearchValue.text = "";
+						updateRecordCount.text = "";
+						
+						Alert.show(String(event.result) + " record(s) successfully updated", "Success");
+					}
+					else
+					{
+						Alert.show("Record(s) update unsuccessful", "Error", Alert.CANCEL);
+					}
+				}
+				else
+				{
+					Alert.show("Record(s) update unsuccessful", "Error", Alert.CANCEL);
+				}
+			}
+			
+			private function httpDeleteRecordService(json:String):void
+			{
+				var request:Object = new Object();
+				request.primarykey = primaryKey;
+				request.json = json;
+				
+				deleteRecord.method = "GET";
+				deleteRecord.request = request;
+				deleteRecord.resultFormat = "text";
+				deleteRecord.url = feedURL + "/deleteRecords.php";
+				deleteRecord.addEventListener("result", httpDeleteRecordResult);
+				deleteRecord.addEventListener("fault", httpFault);
+				deleteRecord.send();
+			}
+			
+			private function httpDeleteRecordResult(event:ResultEvent):void
+			{
+				if (event.result != "Invalid Query")
+				{
+					if (event.result == deleteGrid.selectedItems.length)
+					{
+						AppEvent.dispatch(GEOJSONFEED_COLLECTION_REFRESH);
+						
+						clearGraphics();
+						recordData = null;
+						deleteArray = [];
+						deleteSearchValue.text = "";
+						
+						Alert.show(String(event.result) + " record(s) successfully deleted", "Success");
+					}
+					else
+					{
+						Alert.show("Record(s) deletion unsuccessful", "Error", Alert.CANCEL);
+					}
+				}
+				else
+				{
+					Alert.show("Record(s) deletion unsuccessful", "Error", Alert.CANCEL);
+				}
+			}
+			
+			private function httpSearchRecordHandler(event:MouseEvent):void
+			{
+				var request:Object = new Object();
+				
+				if (this.currentState == "updateRecords" && updateSearchValue.text != "")
+				{
+					request.filter = updateSearchList.selectedItem;
+					request.condition = updateFilterCondition.selectedItem;
+					
+					if (request.condition == "=")
+					{
+						request.value = updateSearchValue.text;
+					}
+					else
+					{
+						request.value = "%" + updateSearchValue.text + "%";
+					}
+					
+					httpSearchRecordService(request);
+				}
+				else if (this.currentState == "deleteRecords" && deleteSearchValue.text != "")
+				{
+					request.filter = deleteSearchList.selectedItem;
+					request.condition = deleteFilterCondition.selectedItem;
+					
+					if (request.condition == "=")
+					{
+						request.value = deleteSearchValue.text;
+					}
+					else
+					{
+						request.value = "%" + deleteSearchValue.text + "%";
+					}
+					
+					httpSearchRecordService(request);
+				}
+				else
+				{
+					request = null;
+					Alert.show("Search input text field is blank", "Error", Alert.CANCEL);
+				}
+			}
+					
+			private function httpSearchRecordService(request:Object):void
+			{
+				selectRecord.method = "GET";
+				selectRecord.request = request;
+				selectRecord.resultFormat = "text";
+				selectRecord.url = feedURL + "/searchRecords.php";
+				selectRecord.addEventListener("result", httpSelectRecordResult);
+				selectRecord.addEventListener("fault", httpFault);
+				selectRecord.send();
+			}
+			
+			private function activateDrawTool(drawTool:String, drawMode:String):void
+			{
+				var drawSymbol:Symbol; 
+				var status:String;
+				
+				switch (drawTool)
+				{
+					case DrawTool.MAPPOINT:
+					{
+						status = "Draw Point";
+						drawSymbol = new SimpleMarkerSymbol(SimpleMarkerSymbol.STYLE_CIRCLE, 10, 0xFF0000, 1);
+						break;
+					}
+					case DrawTool.POLYLINE:
+					{
+						status = "Draw Line";
+						drawSymbol = new SimpleLineSymbol(SimpleLineSymbol.STYLE_SOLID, 0xFF0000, 1, 2);
+						break;
+					}
+					case DrawTool.EXTENT:
+					{
+						status = "Draw Rectangle";
+						drawSymbol = new SimpleFillSymbol(SimpleFillSymbol.STYLE_NULL, 0xFF0000, 1, new SimpleLineSymbol(SimpleLineSymbol.STYLE_SOLID, 0xFF0000, 1, 2));
+						break;
+					}
+					case DrawTool.POLYGON:
+					{
+						status = "Draw Polygon";
+						drawSymbol = new SimpleFillSymbol(SimpleFillSymbol.STYLE_NULL, 0xFF0000, 1, new SimpleLineSymbol(SimpleLineSymbol.STYLE_SOLID, 0xFF0000, 1, 2));
+						break;
+					}
+				}
+				
+				if (drawMode == "edit")
+				{
+					if (drawTool == DrawTool.EXTENT || drawTool == DrawTool.POLYGON)
+					{
+						setMapAction(drawTool, status, drawSymbol, spatialIntersectQuery);
+					}
+					else if (drawTool == DrawTool.MAPPOINT)
+					{
+						setMapAction(drawTool, status, drawSymbol, updatePointGeometry);
+					}
+				}
+				else
+				{
+				setMapAction(drawTool, status, drawSymbol, insertPointGeometry);
+				}
+			}
+			
+			private function spatialIntersectQuery(event:DrawEvent):void
+			{		
+				clearGraphics();
+				updateRecordCount.text = "";
+				
+				if (event.target != null)
+				{
+					event.target.deactivate(); // deactivate draw tool
+				}
+				
+				var wkt:String = "'POLYGON((";
+				var graphicTool:Graphic = new Graphic(event.graphic.geometry, event.graphic.symbol);
+				
+				graphicsLayer.add(graphicTool);
+				
+				if (graphicTool.geometry.type == "esriGeometryEnvelope")
+				{
+					var xmax_ymax:MapPoint = WebMercatorUtil.webMercatorToGeographic(new MapPoint(graphicTool.geometry.extent.xmax, graphicTool.geometry.extent.ymax, new SpatialReference(4326))) as MapPoint;
+					var xmin_ymin:MapPoint = WebMercatorUtil.webMercatorToGeographic(new MapPoint(graphicTool.geometry.extent.xmin, graphicTool.geometry.extent.ymin, new SpatialReference(4326))) as MapPoint;
+					
+					var xmax:Number = parseFloat(xmax_ymax.x.toFixed(5));
+					var xmin:Number = parseFloat(xmin_ymin.x.toFixed(5));
+					var ymax:Number = parseFloat(xmax_ymax.y.toFixed(5));
+					var ymin:Number = parseFloat(xmin_ymin.y.toFixed(5));
+					
+					wkt += xmin + " " + ymax + ", " + xmin + " " + ymin + ", " + xmax + " " + ymin + ", " + xmax + " " + ymax + ", " +  xmin + " " + ymax;
+				}
+				else
+				{
+					var polygon:Polygon = graphicTool.geometry as Polygon;
+					
+					for (var i:int = polygon.rings[0].length - 1; i > -1; i--)
+					{
+						var latlng:MapPoint = WebMercatorUtil.webMercatorToGeographic(polygon.rings[0][i]) as MapPoint;
+							
+						if (i != 0)
+						{
+							wkt += latlng.x + " " + latlng.y + ", ";
+						}
+						else
+						{
+							wkt += latlng.x + " " + latlng.y;
+						}
+					}
+				}
+				
+				wkt += "))'";	
+				httpIntersectRecordService(wkt);
+			}
+			
+			private function httpIntersectRecordService(wkt:String):void
+			{
+				if (this.currentState == "updateRecords" || this.currentState == "deleteRecords")
+				{
+					var request:Object = new Object();
+					request.titlefield = titleField;
+					request.geometryfield = geometryField;
+					request.geometryvalue = wkt;
+					
+					selectRecord.method = "GET";
+					selectRecord.request = request;
+					selectRecord.resultFormat = "text";
+					selectRecord.url = feedURL + "/getIntersect.php";
+					selectRecord.addEventListener("result", httpSelectRecordResult);
+					selectRecord.addEventListener("fault", httpFault);
+					selectRecord.send();
+				}
+			}
+			
+			private function updatePointGeometry(event:DrawEvent):void
+			{
+				clearGraphics();
+				
+				if (event.target != null)
+				{
+					event.target.deactivate(); // deactivate draw tool
+				}
+				
+				if (updateGrid.selectedItems.length > 0)
+				{
+					var graphicTool:Graphic = new Graphic(event.graphic.geometry, event.graphic.symbol);
+					
+					graphicsLayer.add(graphicTool);
+					
+					var latlng:MapPoint = WebMercatorUtil.webMercatorToGeographic(graphicTool.geometry) as MapPoint;
+					var update:Object;
+					
+					for (var i:int = 0; i < updateGrid.selectedItems.length; i++)
+					{
+						update = new Object();
+						update.id = updateGrid.selectedItems[i][primaryKey];
+						update.datafield = latField;
+						update.geometryvalue = true;
+						update.value = latlng.y.toFixed(5);
+						
+						updateArray.push(update);
+						
+						update = new Object();
+						update.id = updateGrid.selectedItems[i][primaryKey];
+						update.datafield = lngField;
+						update.geometryvalue = true;
+						update.value = latlng.x.toFixed(5);
+						
+						updateArray.push(update);
+					
+						recordData[i][latField] = latlng.y.toFixed(5);
+						recordData[i][lngField] = latlng.x.toFixed(5);
+					}
+				}
+				else
+				{
+					Alert.show("No records selected", "Result", Alert.CANCEL);
+				}
+			}
+			
+			private function insertPointGeometry(event:DrawEvent):void
+			{
+				clearGraphics();
+				
+				if (event.target != null)
+				{
+					event.target.deactivate(); // deactivate draw tool
+				}
+				
+				var graphic:Graphic = new Graphic(event.graphic.geometry, event.graphic.symbol);
+				
+				graphicsLayer.add(graphic);
+				
+				var latlng:MapPoint = WebMercatorUtil.webMercatorToGeographic(graphic.geometry) as MapPoint;
+				
+				insertArray[0][latField] = latlng.y.toFixed(5);
+				insertArray[0][lngField] = latlng.x.toFixed(5);
+				
+				insertRecordCount.text = "Geographic coordinates selected";
+			}
+			
+			private function clearGraphics():void
+			{
+				map.infoWindow.hide();
+				graphicsLayer.clear();
+			}
+						
+			private function clearRecordHandler(event:MouseEvent):void
+			{
+				switch (this.currentState)
+				{
+					case "insertRecords":
+					{
+						insertArray = [];
+						createInsertRecord();
+						insertRecordCount.text = "";
+						clearGraphics();
+						break;
+					}
+					case "updateRecords":
+					{
+						recordData = null;
+						updateSearchValue.text = "";
+						updateRecordCount.text = "";
+						clearGraphics();
+						break;
+					}
+					case "deleteRecords":
+					{
+						recordData = null;
+						deleteSearchValue.text = "";
+						deleteRecordCount.text = "";
+						clearGraphics();
+						break;
+					}
+				}
+			}
+			
+			private function wTemplate_openHandler(event:Event):void
+			{
+				showStateEditRecords();
+			}
+			
+			private function wTemplate_closedHandler(event:Event):void
+			{
+				clearGraphics();
+				
+				columnRecord.removeEventListener("result", httpColumnRecordResult);
+				columnRecord.removeEventListener("fault", httpFault);
+				
+				if (deleteRecord)
+				{
+					deleteRecord.removeEventListener("result", httpDeleteRecordResult);
+					deleteRecord.removeEventListener("fault", httpFault);
+				}
+				
+				if (insertRecord)
+				{
+					insertRecord.removeEventListener("result", httpInsertRecordResult);
+					insertRecord.removeEventListener("fault", httpFault);
+				}
+				
+				if (selectRecord)
+				{
+					selectRecord.removeEventListener("result", httpSelectRecordResult);
+					selectRecord.removeEventListener("fault", httpFault);
+				}
+				
+				if (updateRecord)
+				{
+					updateRecord.removeEventListener("result", httpUpdateRecordResult);
+					updateRecord.removeEventListener("fault", httpFault);
+				}
+			}
+		]]>
+	</fx:Script>
+	
+	<viewer:states>
+		<s:State name="editRecords" />
+		<s:State name="insertRecords" />
+		<s:State name="updateRecords" />
+		<s:State name="deleteRecords" />
+	</viewer:states>
+	
+	<viewer:WidgetTemplate id="wTemplate"
+						   width="670" height="433"
+						   minWidth="670" minHeight="433"
+						   closed="wTemplate_closedHandler(event)"
+						   open="wTemplate_openHandler(event)">
+		
+		<s:Group id="editRecords"
+				 width="100%" height="100%"
+				 visible="false"
+				 visible.editRecords="true">
+			<s:layout>
+				<s:VerticalLayout horizontalAlign="center"
+								  verticalAlign="middle" />
+			</s:layout>
+			<s:Label fontWeight="bold"
+					 fontSize="13"
+					 text="Click appropriate icon to Insert, Update or Delete records" />	
+		</s:Group>
+		
+		<s:Group id="insertRecords"
+				 width="100%" height="100%"
+				 visible="false"
+				 visible.insertRecords="true">
+			<s:layout>
+				<s:VerticalLayout />
+			</s:layout>
+			<s:HGroup width="100%"
+					  paddingLeft="14"
+					  paddingTop="95"
+					  verticalAlign="middle">
+				<s:Label paddingTop="2"
+						 text="Click Tool then Click on Map to Insert New Location" />
+				<mx:Image width="40" height="40"
+						  buttonMode="true"
+						  click="{activateDrawTool(DrawTool.MAPPOINT, null)}"
+						  source="assets/images/i_draw_point.png"
+						  toolTip="Draw Point"
+						  useHandCursor="true" />
+			</s:HGroup>
+			<s:HGroup width="100%" height="25%"
+					  paddingLeft="14"
+					  paddingRight="14"
+					  paddingTop="26">
+				<mx:DataGrid id="insertGrid"
+							 width="100%" height="100%"
+							 horizontalScrollPolicy="on"
+							 verticalScrollPolicy="off"
+							 alternatingItemColors="{[0xCCCCCC, 0xAAAAAA]}"
+							 dataProvider="{insertArray}"
+							 draggableColumns="false"
+							 editable="true"
+							 itemEditEnd="insertGridCell(event)" />
+			</s:HGroup>
+			<s:HGroup width="100%"
+					  paddingTop="5"
+					  horizontalAlign="center">
+				<s:Label id="insertRecordCount" />
+			</s:HGroup>
+			<s:HGroup width="100%"
+					  paddingTop="5"
+					  horizontalAlign="center">
+				<s:Button label="Insert Record"
+						  click="insertRecordHandler(event)" />
+				<s:Button label="Clear"
+						  click="clearRecordHandler(event)" />
+			</s:HGroup>
+		</s:Group>
+		
+		<s:Group id="updateRecords"
+				 width="100%" height="100%"
+				 visible="false"
+				 visible.updateRecords="true">
+			<s:layout>
+				<s:VerticalLayout />
+			</s:layout>
+			<s:HGroup width="100%"
+					  paddingLeft="5"
+					  paddingTop="15"
+					  verticalAlign="middle">
+				<s:Label paddingTop="3"
+						 text="Click Tool then Click on Map to Draw Edit Perimeter" />
+				<mx:Image width="40" height="40"
+						  buttonMode="true"
+						  click="{activateDrawTool(DrawTool.EXTENT, 'edit')}"
+						  source="assets/images/i_draw_rect.png"
+						  toolTip="Draw Rectangle"
+						  useHandCursor="true" />
+				<mx:Image width="40" height="40"
+						  buttonMode="true"
+						  click="{activateDrawTool(DrawTool.POLYGON, 'edit')}"
+						  source="assets/images/i_draw_poly.png"
+						  toolTip="Draw Polygon"
+						  useHandCursor="true" />
+			</s:HGroup>
+			<s:Label paddingLeft="20"
+					 fontWeight="bold"
+					 text="OR" />
+			<s:Label paddingLeft="5"
+					 paddingTop="12"
+					 text="Click on Map Icon to Select Record(s)" />
+			<s:Label paddingLeft="20"
+					 paddingTop="10"
+					 fontWeight="bold"
+					 text="OR" />
+			<s:HGroup width="100%" height="25"
+					  paddingTop="5"
+					  verticalAlign="middle">
+				<s:Label paddingLeft="5"
+						 paddingRight="10"
+						 paddingTop="1"
+						 text="Search by:" />
+				<s:DropDownList id="updateSearchList"
+								width="125"
+								contentBackgroundAlpha="1"
+								textAlign="center"
+								dataProvider="{searchFields}"
+								requireSelection="true" />
+				<s:DropDownList id="updateFilterCondition"
+								width="70"
+								contentBackgroundAlpha="1"
+								textAlign="center"
+								dataProvider="{filterCondition}"
+								requireSelection="true" />
+				<mx:TextInput id="updateSearchValue"
+							  width="250" />
+				<s:HGroup width="100%"
+						  paddingLeft="10">
+					<s:Button label="Submit"
+							  click="httpSearchRecordHandler(event)" />
+				</s:HGroup>
+			</s:HGroup>
+			<s:HGroup width="100%" height="100%"
+					  paddingLeft="5"
+					  paddingRight="7"
+					  paddingTop="13">
+				<mx:DataGrid id="updateGrid"
+							 width="100%" height="100%"
+							 horizontalScrollPolicy="on"
+							 verticalScrollPolicy="on"
+							 allowMultipleSelection="true"
+							 alternatingItemColors="{[0xCCCCCC, 0xAAAAAA]}"
+							 dataProvider="{recordData}"
+							 draggableColumns="false"
+							 editable="true"
+							 itemEditEnd="updateGridCell(event)" />
+			</s:HGroup>
+			<s:HGroup width="100%"
+					  paddingLeft="5"
+					  paddingTop="5"
+					  verticalAlign="middle">
+				<s:Label paddingTop="2"
+						 text="Click Tool then Click on Map to Move Selected Point" />
+				<mx:Image width="40" height="40"
+						  buttonMode="true"
+						  click="{activateDrawTool(DrawTool.MAPPOINT, 'edit')}"
+						  source="assets/images/i_draw_point.png"
+						  toolTip="Draw Point"
+						  useHandCursor="true" />
+			</s:HGroup>
+			<s:HGroup width="100%"
+					  paddingTop="2"
+					  horizontalAlign="center">
+				<s:Label id="updateRecordCount"
+						 text="{recordData.length} records returned" /> 
+			</s:HGroup>
+			<s:HGroup width="100%"
+					  paddingTop="6"
+					  horizontalAlign="center">
+				<s:Button label="Update Record(s)"
+						  click="updateRecordHandler(event)" />
+				<s:Button label="Clear"
+						  click="clearRecordHandler(event)" />
+			</s:HGroup>
+		</s:Group>
+		
+		<s:Group id="deleteRecords"
+				 width="100%" height="100%"
+				 visible="false"
+				 visible.deleteRecords="true">
+			<s:layout>
+				<s:VerticalLayout />
+			</s:layout>
+			<s:HGroup width="100%" height="80%"
+					  paddingLeft="5"
+					  paddingTop="62"
+					  verticalAlign="middle">
+				<s:Label paddingTop="3"
+						 text="Click Tool then Click on Map to Draw Edit Perimeter" />
+				<mx:Image width="40" height="40"
+						  buttonMode="true"
+						  click="{activateDrawTool(DrawTool.EXTENT, 'edit')}"
+						  source="assets/images/i_draw_rect.png"
+						  toolTip="Draw Rectangle"
+						  useHandCursor="true" />
+				<mx:Image width="40" height="40"
+						  buttonMode="true"
+						  click="{activateDrawTool(DrawTool.POLYGON, 'edit')}"
+						  source="assets/images/i_draw_poly.png"
+						  toolTip="Draw Polygon"
+						  useHandCursor="true" />
+			</s:HGroup>
+			<s:Label paddingLeft="20"
+					 fontWeight="bold"
+					 text="OR" />
+			<s:Label paddingLeft="5"
+					 paddingTop="12"
+					 text="Click on Map Icon to Select Record(s)" />
+			<s:Label paddingLeft="20"
+					 paddingTop="10"
+					 fontWeight="bold"
+					 text="OR" />
+			<s:HGroup width="100%" height="25"
+					  paddingTop="10"
+					  verticalAlign="middle">
+				<s:Label paddingLeft="5"
+						 paddingRight="10"
+						 paddingTop="1"
+						 text="Search by:" />
+				<s:DropDownList id="deleteSearchList"
+								width="125"
+								contentBackgroundAlpha="1"
+								textAlign="center"
+								dataProvider="{searchFields}"
+								requireSelection="true" />
+				<s:DropDownList id="deleteFilterCondition"
+								width="70"
+								contentBackgroundAlpha="1"
+								textAlign="center"
+								dataProvider="{filterCondition}"
+								requireSelection="true" />
+				<mx:TextInput id="deleteSearchValue"
+							  width="250" />
+				<s:HGroup width="100%"
+						  paddingLeft="10">
+					<s:Button label="Submit"
+							  click="httpSearchRecordHandler(event)" />
+				</s:HGroup>
+			</s:HGroup>
+			<s:HGroup width="100%" height="100%"
+					  paddingLeft="5"
+					  paddingRight="7"
+					  paddingTop="15">
+				<mx:DataGrid id="deleteGrid"
+							 width="100%" height="100%"
+							 horizontalScrollPolicy="on"
+							 verticalScrollPolicy="on"
+							 allowMultipleSelection="true"
+							 alternatingItemColors="{[0xCCCCCC, 0xAAAAAA]}"
+							 dataProvider="{recordData}"
+							 draggableColumns="false" />
+			</s:HGroup>
+			<s:HGroup width="100%"
+					  paddingTop="5"
+					  horizontalAlign="center">
+				<s:Label id="deleteRecordCount"
+						 text="{recordData.length} records returned" />
+			</s:HGroup>
+			<s:HGroup width="100%"
+					  paddingTop="5"
+					  horizontalAlign="center">
+				<s:Button label="Delete Record(s)"
+						  click="deleteRecordHandler(event)" />
+				<s:Button label="Clear"
+						  click="clearRecordHandler(event)" />
+			</s:HGroup>
+		</s:Group>
+		
+	</viewer:WidgetTemplate>
+	
+</viewer:BaseWidget>

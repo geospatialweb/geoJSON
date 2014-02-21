@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="utf-8"?>
+<viewer:BaseWidget xmlns:fx="http://ns.adobe.com/mxml/2009"
+				   xmlns:s="library://ns.adobe.com/flex/spark"
+				   xmlns:viewer="com.esri.viewer.*"
+				   xmlns:geojson="com.geoJSON.*"
+				   creationComplete="creationCompleteHandler()"
+				   widgetConfigLoaded="init()">
+	
+	<fx:Script>
+		<![CDATA[
+			import com.esri.ags.events.DrawEvent;
+			import com.esri.ags.geometry.MapPoint;
+			import com.esri.ags.layers.GraphicsLayer;
+			import com.esri.ags.portal.PopUpRenderer;
+			import com.esri.ags.utils.JSONUtil;
+			import com.esri.viewer.AppEvent;
+			import com.geoJSON.GeoJSONFeed;
+			import com.geoJSON.GeoJSONFeedCollection;
+			
+			import mx.collections.ArrayCollection;
+			import mx.controls.Alert;
+			import mx.core.UIComponent;
+			import mx.rpc.events.FaultEvent;
+			import mx.rpc.events.ResultEvent;
+			import mx.rpc.http.HTTPService;
+			
+			import spark.components.supportClasses.ItemRenderer;
+			
+			private static const GEOJSONFEED_COLLECTION_REFRESH:String = "geoJSONFeedCollectionRefresh";
+			
+			[Bindable]
+			private var geoJSONFeedCollection:ArrayCollection;
+			
+			private var feedURL:String;
+			private var primaryKey:String;
+			private var titleField:String;
+			private var linkField:String;
+			private var filterField:String;
+			private var filterValue:String;
+			private var sortField:String;
+			private var zoomScale:Number;
+			private var aliasArray:Array = [];
+			private var fieldsArray:Array = [];
+			private var params:Object = new Object();
+			private var graphicsLayer:GraphicsLayer = new GraphicsLayer();
+			private var geoJSONService:HTTPService = new HTTPService();
+			
+			private function creationCompleteHandler():void
+			{
+				AppEvent.addListener(GEOJSONFEED_COLLECTION_REFRESH, geoJSONFeedCollection_Refresh);
+			}
+			
+			private function init():void
+			{
+				if (configXML)
+				{
+					feedURL = String(configXML.scripts.@source);
+					primaryKey = String(configXML.primarykey);
+					titleField = String(configXML.titlefield);
+					linkField = String(configXML.linkfield);
+					filterField = String(configXML.filter.@field);
+					filterValue = String(configXML.filter.@value);
+					sortField = String(configXML.filter.@sort);
+					
+					if (Number(configXML.zoomscale) > 0)
+					{
+						zoomScale = Number(configXML.zoomscale);
+					}
+					
+					params.primarykey = primaryKey;
+					params.titlefield = titleField;
+					params.linkfield = linkField;
+					params.filterfield = filterField;
+					params.container = configData.widgetContainers[0];
+					params.iconwidth = Number(configXML.icon.@width);
+					params.iconheight = Number(configXML.icon.@height);
+					
+					var fields:XMLList = configXML.fields.field;
+					
+					for each (var field:XML in fields)
+					{
+						aliasArray.push(String(field.@alias));
+						fieldsArray.push(String(field.@name));
+					}
+					
+					graphicsLayer.spatialReference = map.spatialReference;
+					map.addLayer(graphicsLayer);
+					
+					httpGeoJSONService();
+				}
+			}
+			
+			private function httpGeoJSONService():void
+			{
+				var request:Object = new Object();
+				request.primarykey = primaryKey;
+				request.titlefield = titleField;
+				request.linkfield = linkField;
+				request.filterfield = filterField;
+				request.filtervalue = filterValue;
+				request.sortfield = sortField; 
+				request.array = fieldsArray.toString();
+				
+				geoJSONService.method = "GET";
+				geoJSONService.resultFormat = "text";
+				geoJSONService.request = request;
+				geoJSONService.url = feedURL + "/geoJSONFeed.php";
+				geoJSONService.addEventListener("result", httpResult);
+				geoJSONService.addEventListener("fault", httpFault);
+				geoJSONService.send();
+			}
+			
+			private function httpFault(event:FaultEvent):void
+			{
+				Alert.show(event.fault.faultString);
+			}
+			
+			private function httpResult(event:ResultEvent):void
+			{
+				if (event.result != "Invalid Query")
+				{
+					var data:Object = JSONUtil.decode(event.result as String);
+					geoJSONFeedCollection = GeoJSONFeedCollection.createCollection(data, aliasArray, fieldsArray, params);
+					
+					map.infoWindow.hide();
+					graphicsLayer.graphicProvider.source = [];
+					
+					for (var i:int = 0; i < geoJSONFeedCollection.length; i++)
+					{
+						if (geoJSONFeedCollection[i].point && !isNaN(geoJSONFeedCollection[i].point.x) && !isNaN(geoJSONFeedCollection[i].point.y)) // make sure it is a valid point
+						{
+							graphicsLayer.add(geoJSONFeedCollection[i].graphic);
+						}
+					}
+				}
+				else
+				{
+					Alert.show("Invalid Query", "Error", Alert.CANCEL);
+				}
+			}
+			
+			private function geoJSONFeed_itemClickHandler(event:Event):void
+			{
+				var geoJSONFeed:GeoJSONFeed = ItemRenderer(event.target).data as GeoJSONFeed;
+				
+				if (geoJSONFeed.point)
+				{
+					if (map.scale > zoomScale)
+					{
+						map.scale = zoomScale;
+					}
+					
+					map.centerAt(geoJSONFeed.point);
+				}
+
+				showPopUp(geoJSONFeed);
+			}
+			
+			private function showPopUp(geoJSONFeed:GeoJSONFeed):void
+			{
+				var popUpRenderer:PopUpRenderer = new PopUpRenderer();
+				popUpRenderer.popUpInfo = geoJSONFeed.popUpInfo;
+				popUpRenderer.graphic = geoJSONFeed.graphic;
+				
+				map.infoWindow.content = popUpRenderer;
+				map.infoWindow.contentOwner = geoJSONFeed.graphic;
+				map.infoWindow.show(geoJSONFeed.point);
+			}
+			
+			private function geoJSONFeedCollection_Refresh(event:AppEvent):void
+			{
+				httpGeoJSONService();
+			}
+			
+			private function wTemplate_openHandler(event:Event):void
+			{
+				if (graphicsLayer)
+				{
+					graphicsLayer.visible = true;
+				}
+			}
+			
+			private function wTemplate_closedHandler(event:Event):void
+			{
+				geoJSONService.removeEventListener("result", httpResult);
+				geoJSONService.removeEventListener("fault", httpFault);
+				
+				map.infoWindow.hide();
+				map.extent = map.initialExtent;
+				graphicsLayer.visible = false;
+			}
+		]]>
+	</fx:Script>
+	
+	<viewer:WidgetTemplate id="wTemplate"
+						   width="400" height="263"
+						   open="wTemplate_openHandler(event)"
+						   closed="wTemplate_closedHandler(event)">
+		<s:Scroller width="100%" height="100%">
+			<geojson:GeoJSONFeedDataGroup dataProvider="{geoJSONFeedCollection}"
+										  geoJSONFeedClick="geoJSONFeed_itemClickHandler(event)">
+				<geojson:layout>
+					<s:VerticalLayout gap="2"
+									  horizontalAlign="justify"
+									  useVirtualLayout="true" />
+				</geojson:layout>
+			</geojson:GeoJSONFeedDataGroup>
+		</s:Scroller>
+	</viewer:WidgetTemplate>
+	
+</viewer:BaseWidget>

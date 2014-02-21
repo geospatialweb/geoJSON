@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:ItemRenderer xmlns:fx="http://ns.adobe.com/mxml/2009"
+                xmlns:mx="library://ns.adobe.com/flex/mx"
+				xmlns:s="library://ns.adobe.com/flex/spark"
+				autoDrawBackground="false"
+                click="itemRenderer_clickHandler(event)"
+				dataChange="itemRenderer_dataChangeHandler(event)"
+				minHeight="40">
+    
+    <fx:Script>
+        <![CDATA[
+      		import com.esri.ags.symbols.Symbol;
+			
+			import com.geoJSON.GeoJSONSearch;
+            
+         	import mx.events.FlexEvent;
+
+         	private const GEOJSON_SEARCH_CLICK:String = "geoJSONSearchClick";
+			
+			[Bindable]
+			private var geoJSONSearch:GeoJSONSearch;
+
+            private function itemRenderer_dataChangeHandler(event:FlexEvent):void
+            {
+                geoJSONSearch = this.data as GeoJSONSearch;
+				
+                if (geoJSONSearch)
+                {					
+					resultIcon.addChild(geoJSONSearch.symbol.createSwatch(20, 20));
+                }
+            }
+
+            private function itemRenderer_clickHandler(event:MouseEvent):void
+            {
+                dispatchEvent(new Event(GEOJSON_SEARCH_CLICK, true)); // bubbles
+            }
+        ]]>
+    </fx:Script>
+
+    <s:states>
+		<s:State name="normal" />
+        <s:State name="hovered" />
+        <s:State name="selected" />
+    </s:states>
+
+    <!-- border/background rectangle -->
+    <s:Rect top="0" bottom="0"
+			left="0" right="0"
+            radiusX="4"
+			radiusY="4">
+        <s:stroke>
+            <mx:SolidColorStroke alpha="{getStyle('borderAlpha')}"
+                                 color="{getStyle('borderColor')}"
+                                 color.selected="{getStyle('focusColor')}"
+                                 weight="1" />
+        </s:stroke>
+        <s:fill>
+            <s:SolidColor alpha.normal="0.25"
+                          alpha.hovered="0.75"
+                          alpha.selected="1"
+						  color.normal="{getStyle('contentBackgroundColor')}"
+                          color.hovered="{getStyle('rollOverColor')}"
+                          color.selected="{getStyle('selectionColor')}" />
+        </s:fill>
+    </s:Rect>
+    <s:HGroup width="100%" height="100%"
+              paddingBottom="3"
+			  paddingLeft="3"
+			  paddingRight="3"
+			  paddingTop="3"
+			  verticalAlign="middle">
+        <mx:UIComponent id="resultIcon"
+						width="100%" height="100%"
+						maxWidth="20" maxHeight="20">
+            <mx:filters>
+                <mx:GlowFilter alpha="0.5"
+                               blurX="10"
+                               blurY="10"
+                               color="#FFFFFF" />
+            </mx:filters>
+        </mx:UIComponent>
+        <s:VGroup width="100%" height="100%"
+				  verticalAlign="middle">
+            <s:Label width="100%"
+					 fontWeight="bold"
+					 text="{geoJSONSearch.title}" />
+			<s:Label width="100%"
+					 text="{geoJSONSearch.content}" />
+        </s:VGroup>
+    </s:HGroup>
+</s:ItemRenderer>

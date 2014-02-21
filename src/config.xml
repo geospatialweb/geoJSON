@@ -1,0 +1,109 @@
+<?xml version="1.0" ?>
+<!--
+////////////////////////////////////////////////////////////////////////////////
+//
+// Read more about ArcGIS Viewer for Flex - http://links.esri.com/flexviewer
+//
+////////////////////////////////////////////////////////////////////////////////
+-->
+<configuration>
+    <title>Ottawa Valley Cultural Heritage</title>
+    <subtitle>Web Mapping Application of Regional Cultural Assets</subtitle>
+    
+    <logo>assets/images/church.png</logo>
+    
+    <style>
+    	<!-- text color, background color, rollover color, selection color, titlecolor -->
+        <colors>0xFFFFFF,0x333333,0x101010,0x000000,0xFFD700</colors>
+    </style>
+    
+    <geometryservice url="http://tasks.arcgisonline.com/ArcGIS/rest/services/Geometry/GeometryServer" />
+
+    <!-- UI elements -->
+    <widget left="10"  top="55"    config="widgets/Navigation/NavigationWidget.xml"             url="widgets/Navigation/NavigationWidget.swf" />
+    <widget right="-3" bottom="-2" config="widgets/OverviewMap/OverviewMapWidget.xml"           url="widgets/OverviewMap/OverviewMapWidget.swf" />
+    <widget right="20" top="55"    config="widgets/MapSwitcher/MapSwitcherWidget.xml"           url="widgets/MapSwitcher/MapSwitcherWidget.swf" />
+    <widget left="0"   top="0"     config="widgets/HeaderController/HeaderControllerWidget.xml" url="widgets/HeaderController/HeaderControllerWidget.swf" />
+    <widget left="4"   bottom="5"  config="widgets/Coordinate/CoordinateWidget.xml"             url="widgets/Coordinate/CoordinateWidget.swf" />
+
+    <map addarcgisbasemaps="false" esrilogovisible="false" fullextent="-20000000 -20000000 20000000 20000000" initialextent="-8680000 5680000 -8480000 5780000" top="40" wraparound180="true">
+		<basemaps>
+			<layer label="ESRI Streets" type="tiled" visible="true"  url="http://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer" />
+			<layer label="ESRI Aerial"  type="tiled" visible="false" url="http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer" />
+			<layer label="ESRI Topo"    type="tiled" visible="false" url="http://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer" />
+		</basemaps>
+		<lods>
+			<lod resolution="1.19432856685505" scale="4513.988705" />
+			<lod resolution="2.38865713397468" scale="9027.977411" />
+			<lod resolution="4.77731426794937" scale="18055.954822" />
+			<lod resolution="9.55462853563415" scale="36111.909643" />
+			<lod resolution="19.1092570712683" scale="72223.819286" />
+			<lod resolution="38.2185141425366" scale="144447.638572" />
+			<lod resolution="76.4370282850732" scale="288895.277144" />
+			<lod resolution="152.874056570411" scale="577790.554289" />
+			<lod resolution="305.748113140558" scale="1155581.108577" />
+			<lod resolution="611.49622628138"  scale="2311162.217155" />
+    	</lods>
+    </map>
+
+    <!-- widgets organized into widget containers that manage close/open etc -->
+    <!-- supported layout property options: horizontal(default)|float|vertical|fix-->
+    <widgetcontainer layout="vertical" right="5" top="75">
+    	<widget label="Cultural Facilities and Spaces"
+                icon="assets/images/i_pin_blue.png"
+                config="widgets/Cultural/Cultural Facilities and Spaces.xml"
+                url="widgets/Cultural/CulturalWidget.swf" />
+		<widget label="Cultural Industries"
+                icon="assets/images/i_pin_pink.png"
+                config="widgets/Cultural/Cultural Industries.xml"
+                url="widgets/Cultural/CulturalWidget.swf" />
+		<widget label="Cultural Festivals and Events"
+                icon="assets/images/i_pin_green.png"
+                config="widgets/Cultural/Cultural Festivals and Events.xml"
+                url="widgets/Cultural/CulturalWidget.swf" />
+		<widget label="Cultural Heritage"
+                icon="assets/images/i_pin_orange.png"
+                config="widgets/Cultural/Cultural Heritage.xml"
+                url="widgets/Cultural/CulturalWidget.swf" />
+		<widget label="Community Cultural Organizations"
+                icon="assets/images/i_pin_purple.png"
+                config="widgets/Cultural/Community Cultural Organizations.xml"
+                url="widgets/Cultural/CulturalWidget.swf" />
+		</widgetcontainer>
+	<widgetcontainer layout="float">
+		<widget label="Search Cultural Assets"
+				left="100" top="85"
+            	icon="assets/images/i_search.png"
+            	config="widgets/Cultural/SearchWidget.xml"
+            	url="widgets/Cultural/SearchWidget.swf" />
+		<widget label="Edit Cultural Assets"
+				left="100" top="85"
+				icon="assets/images/i_edit.png"
+   	    	 	config="widgets/Cultural/EditWidget.xml"
+   	    	  	url="widgets/Cultural/EditWidget.swf" />
+    </widgetcontainer>
+    <widgetcontainer layout="float">
+    	<widgetgroup label="Tools" icon="assets/images/i_widget.png">
+        	<widget label="Bookmarks"
+					left="100" top="100"
+					icon="assets/images/i_bookmark.png"
+   	       		 	config="widgets/Bookmark/BookmarkWidget.xml"
+   	       		  	url="widgets/Bookmark/BookmarkWidget.swf" />
+  	 		<widget label="Find Address"
+  	 				left="475" top="100"
+        			icon="assets/images/i_target.png"
+            		config="widgets/Locate/LocateWidget_Canada.xml"
+           			url="widgets/Locate/LocateWidget.swf" />
+        	<widget label="Draw & Measure"
+        			left="825" top="100"
+                	icon="assets/images/i_draw2.png"
+                	config="widgets/Draw/DrawWidget.xml"
+                	url="widgets/Draw/DrawWidget.swf" />
+        	<widget label="Print"
+        			left="475" top="375"
+                	icon="assets/images/i_print.png"
+                	config="widgets/Print/PrintWidget.xml"
+                	url="widgets/Print/PrintWidget.swf" />
+		</widgetgroup>
+	</widgetcontainer>
+</configuration>

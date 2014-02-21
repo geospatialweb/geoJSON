@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="utf-8"?>
+<viewer:BaseWidget xmlns:fx="http://ns.adobe.com/mxml/2009"
+				   xmlns:mx="library://ns.adobe.com/flex/mx"
+				   xmlns:s="library://ns.adobe.com/flex/spark"
+				   xmlns:viewer="com.esri.viewer.*"
+				   xmlns:geojson="com.geoJSON.*"
+				   widgetConfigLoaded="init()">
+	
+	<fx:Script>
+		<![CDATA[
+			import com.esri.ags.geometry.MapPoint;
+			import com.esri.ags.layers.GraphicsLayer;
+			import com.esri.ags.utils.JSONUtil;
+			import com.esri.ags.portal.PopUpRenderer;
+			import com.esri.ags.portal.supportClasses.PopUpInfo;
+			import com.geoJSON.GeoJSONFeedCollection;
+			import com.geoJSON.GeoJSONFeed;
+			
+			import mx.collections.ArrayCollection;
+			import mx.controls.Alert;
+			import mx.rpc.events.FaultEvent;
+			import mx.rpc.events.ResultEvent;
+			import mx.rpc.http.HTTPService;
+			
+			import spark.components.supportClasses.ItemRenderer;
+			
+			[Bindable]
+			private var geoJSONFeedCollection:ArrayCollection;
+			
+			private var feedURL:String;
+			private var titleField:String;
+			private var linkField:String;
+			private var zoomScale:Number;
+			private var aliasArray:Array = [];
+			private var fieldsArray:Array = [];
+			private var params:Object = new Object();
+			private var graphicsLayer:GraphicsLayer = new GraphicsLayer();
+			private var searchRecord:HTTPService = new HTTPService();
+			
+			private function init():void
+			{
+				if (configXML)
+				{
+					feedURL = String(configXML.scripts.@source);
+					titleField = String(configXML.titlefield);
+					linkField = String(configXML.linkfield);
+					
+					if (Number(configXML.zoomscale) > 0)
+					{
+						zoomScale = Number(configXML.zoomscale);
+					}
+					
+					params.titlefield = titleField;
+					params.linkfield = linkField;
+					params.filterfield = String(configXML.filter.@field);
+					params.iconwidth = Number(configXML.icon.@width);
+					params.iconheight = Number(configXML.icon.@height);
+					params.container = configData.widgetContainers[0];
+					
+					var fields:XMLList = configXML.fields.field;
+					
+					for each (var field:XML in fields)
+					{
+						aliasArray.push(String(field.@alias));
+						fieldsArray.push(String(field.@name));
+					}
+					
+					var searchFields:ArrayCollection = new ArrayCollection();
+					fields = configXML.search.field;
+					
+					for each (field in fields)
+					{
+						searchFields.addItem(String(field.@name));
+					}
+					
+					searchList.dataProvider = searchFields;
+					filterCondition.dataProvider = new ArrayCollection(["=", "Like"]);
+					
+					graphicsLayer.spatialReference = map.spatialReference;
+					map.addLayer(graphicsLayer);
+				}
+			}
+			
+			private function httpSearchRecordHandler(event:MouseEvent):void
+			{
+				if (searchValue.text != "")
+				{
+					var request:Object = new Object();
+					request.titlefield = titleField;
+					request.linkfield = linkField;
+					request.array = fieldsArray.toString();
+					request.filter = searchList.selectedItem;
+					request.condition = filterCondition.selectedItem;
+					
+					if (request.condition == "=")
+					{
+						request.value = searchValue.text;
+					}
+					else
+					{
+						request.value = "%" + searchValue.text + "%";
+					}
+						
+					searchRecord.method = "GET";
+					searchRecord.request = request;
+					searchRecord.resultFormat = "text";
+					searchRecord.url = feedURL + "/searchGeoJSONRecords.php";
+					searchRecord.addEventListener("result", httpSearchRecordResult);
+					searchRecord.addEventListener("fault", httpFault);
+					searchRecord.send();
+				}
+				else
+				{
+					Alert.show("Search input text field is blank", "Error", Alert.CANCEL);
+				}
+			}
+			
+			private function httpFault(event:FaultEvent):void
+			{
+				Alert.show(event.fault.faultString);
+			}
+			
+			private function httpSearchRecordResult(event:ResultEvent):void
+			{
+				clearGraphics();
+				
+				if (event.result != "[]")
+				{
+					var data:Object = JSONUtil.decode(event.result as String);
+					geoJSONFeedCollection = GeoJSONFeedCollection.createCollection(data, aliasArray, fieldsArray, params);
+					
+					for (var i:int = 0; i < geoJSONFeedCollection.length; i++)
+					{
+						if (geoJSONFeedCollection[i].point && !isNaN(geoJSONFeedCollection[i].point.x) && !isNaN(geoJSONFeedCollection[i].point.y)) // make sure it is a valid point
+						{
+							graphicsLayer.add(geoJSONFeedCollection[i].graphic);
+						}
+					}
+				}
+				else
+				{
+					Alert.show("No records returned", "Result");
+				}
+			}
+					
+			private function geoJSONFeed_itemClickHandler(event:Event):void
+			{
+				var geoJSONFeed:GeoJSONFeed = ItemRenderer(event.target).data as GeoJSONFeed;
+				
+				if (geoJSONFeed.point)
+				{
+					if (map.scale > zoomScale)
+					{
+						map.scale = zoomScale;
+					}
+					
+					map.centerAt(geoJSONFeed.point);
+				}
+				
+				showPopUp(geoJSONFeed);
+			}
+			
+			private function showPopUp(geoJSONFeed:GeoJSONFeed):void
+			{				
+				var popUpRenderer:PopUpRenderer = new PopUpRenderer();
+				popUpRenderer.popUpInfo = geoJSONFeed.popUpInfo;
+				popUpRenderer.graphic = geoJSONFeed.graphic;
+				
+				map.infoWindow.content = popUpRenderer;
+				map.infoWindow.contentOwner = geoJSONFeed.graphic;
+				map.infoWindow.show(geoJSONFeed.point);
+			}
+			
+			private function clearGraphics():void
+			{
+				if (geoJSONFeedCollection)
+				{
+					searchValue.text = "";
+					geoJSONFeedCollection = null;
+					map.infoWindow.hide();
+					map.extent = map.initialExtent;
+					graphicsLayer.clear();
+				}
+			}
+			
+			private function clearRecordHandler(event:MouseEvent):void
+			{
+				clearGraphics();
+			}
+			
+			private function wTemplate_closedHandler(event:Event):void
+			{
+				clearGraphics();
+				
+				if (searchRecord)
+				{
+					searchRecord.removeEventListener("result", httpSearchRecordResult);
+					searchRecord.removeEventListener("fault", httpFault);
+				}
+			}
+		]]>
+	</fx:Script>
+
+	<viewer:WidgetTemplate id="wTemplate"
+						   width="670" height="433"
+						   minWidth="670" minHeight="433"
+						   closed="wTemplate_closedHandler(event)">
+		<s:Group width="100%" height="100%">
+			<s:layout>
+				<s:VerticalLayout />
+			</s:layout>
+			<s:HGroup width="100%"
+					  paddingTop="25"
+					  verticalAlign="middle">
+				<s:Label paddingLeft="5"
+						 paddingRight="10"
+						 paddingTop="1"
+						 text="Search by:" />
+				<s:DropDownList id="searchList"
+								width="125"
+								contentBackgroundAlpha="1"
+								textAlign="center"
+								requireSelection="true" />
+				<s:DropDownList id="filterCondition"
+								width="70"
+								contentBackgroundAlpha="1"
+								textAlign="center"
+								requireSelection="true" />
+				<mx:TextInput id="searchValue"
+							  width="250" />
+				<s:HGroup width="100%"
+						  paddingLeft="10">
+					<s:Button label="Submit"
+							  click="httpSearchRecordHandler(event)" />
+				</s:HGroup>
+			</s:HGroup>
+			<s:HGroup width="100%"
+					  paddingTop="9"
+					  paddingBottom="9"
+					  horizontalAlign="center">
+				<s:Label text="{geoJSONFeedCollection.length} records returned" />
+			</s:HGroup>
+			<s:Scroller width="100%" height="100%">
+				<geojson:GeoJSONFeedDataGroup dataProvider = "{geoJSONFeedCollection}"
+												geoJSONFeedClick="geoJSONFeed_itemClickHandler(event)">
+					<geojson:layout>
+						<s:VerticalLayout gap="2"
+										  paddingLeft="5"
+										  horizontalAlign="justify"
+										  useVirtualLayout="true" />
+					</geojson:layout>
+				</geojson:GeoJSONFeedDataGroup>
+			</s:Scroller>
+			<s:HGroup width="100%"
+					  paddingTop="10"
+					  horizontalAlign="center">
+				<s:Button label="Clear"
+						  click="clearRecordHandler(event)" />
+			</s:HGroup>
+		</s:Group>
+	</viewer:WidgetTemplate>
+	
+</viewer:BaseWidget>

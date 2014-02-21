@@ -1,0 +1,38 @@
+<?xml version="1.0" ?>
+<configuration>
+	<scripts source="http://geospatialweb.ca/geoJSON/scripts" /> <!-- NO trailing / at end of URL text string -->
+	<icon width="30" height="30" />
+	
+	<!-- ALL database column names listed throughout MUST conform to the *exact* spelling (including underscores) and capitalization as specified in the database
+	     load http://geospatialweb.ca/geoJSON/scripts/getColumnNames.php in your browser to view a list of database column names for reference -->
+	     
+	<!-- IMPORTANT - list the fields below in the SAME ORDER by ALIAS as you want them listed in the InfoWindow PopUp
+				   - ALIAS attribute will be used as the field identifier in the InfoWindow PopUp
+				   - NAME attribute is the database column name as determined above -->
+	<fields>
+		<field name="Address" alias="Address" />
+		<field name="City" alias="City" />
+        <field name="Postal_Code" alias="Postal Code" />
+        <field name="Phone" alias="Phone" />
+        <field name="Fax" alias="Fax" />
+        <field name="Email" alias="Email" />
+        <field name="Category" alias="Category" />
+        <field name="SubCategory" alias="SubCategory" />
+    </fields>
+	
+	<!-- eg. "WHERE Category = Cultural Facilities and Spaces ORDER BY Name" - generally one would use cultural category so listings in the widget item renderer are alphabetically ordered ascending by name --> 
+	<filter field="Category" value="Cultural Facilities and Spaces" sort="Name" />
+    
+    <!-- do NOT include the following two database column names below in the <fields> node above otherwise they will be duplicated -->
+
+    <!-- field value displayed above the horizontal rule in the InfoWindow PopUp -->
+    <titlefield>Name</titlefield>
+
+    <!-- field value for website URL listed at the bottom of the InfoWindow PopUp -->
+    <linkfield>HTTP_URL</linkfield>
+    
+    <!-- column name of database primary key -->
+    <primarykey>ID</primarykey>
+    
+	<zoomscale>10000</zoomscale>
+</configuration>
