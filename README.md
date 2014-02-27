@@ -13,4 +13,6 @@ In this case, I was working with MS SQL so the geographic coordinates were store
 
 As an aside, if one needs to perform a spatial intersect with a polygon, ArcGIS Server cannot handle geometry with more than 250 vertices. It just craps out forcing one to generalize the geometry using distance deviation factors that vary for each geometry.
 
-I also needed to convert my geometry into WKT for the REST services since ESRI does not provide a class to do that. I figure ESRI wants us all to pay outrageous licensing fees for ArcGIS Server so one can use their JPEG map services with no objects returned to the developer. That is the reason why I have moved to open source and away from proprietary solutions.
+I also needed to convert my geometry into WKT for the REST services since ESRI does not provide a class to do that. I figure ESRI wants us all to pay outrageous licensing fees for ArcGIS Server so one can use their JPEG map services with no objects returned to the developer.
+
+That is the reason why I have moved to open source and away from proprietary solutions.
