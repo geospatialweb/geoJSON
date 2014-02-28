@@ -7,8 +7,8 @@
 ////////////////////////////////////////////////////////////////////////////////
 -->
 <configuration>
-    <title>Ottawa Valley Cultural Heritage</title>
-    <subtitle>Web Mapping Application of Regional Cultural Assets</subtitle>
+    <title>Web Mapping Application of Cultural Assets</title>
+    <subtitle></subtitle>
     
     <logo>assets/images/church.png</logo>
     
