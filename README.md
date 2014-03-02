@@ -3,7 +3,7 @@ geoJSON
 
 I got tired of working with XML so I decided to give geoJSON a whirl. I wanted a lightweight transport format relative to XML and JSON is just the ticket. I must admit that geoJSON was a challenge but it was an emerging standard at the time so I figured it was a good thing to learn and promote.
 
-geoJSON is an unbalanced multi-dimensional construct that is difficult to parse on the client and a bitch to create on the server without an available PHP class one can import. And PHP is nuts with single and double quote marks - sometimes they are interchangeable and sometimes you have to guess which one you must use from one line of code to the next. And SQL statements with embedded GET variables adds to the complexity.
+geoJSON is an unbalanced multi-dimensional construct that is tricky to parse on the client and a bitch to create on the server without an available PHP class one can import. And PHP is nuts with single and double quote marks - sometimes they are interchangeable and sometimes you have to guess which one you must use from one line of code to the next. And SQL statements with embedded GET variables adds to the complexity.
 
 I was lucky I had any hair left, but eventually I did manage to create a routine in PHP to produce perfect geoJSON output. (scripts\partial_geoJSON_output_string.txt) That piece of magic is the geoJSONFeed.php script that I wrote trial and error without any debugging tools. I know enough PHP to write REST scripts on the server to get the data from a SQL database and ship it back to the client.
 
